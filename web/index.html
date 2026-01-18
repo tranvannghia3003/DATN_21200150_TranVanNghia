@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <title>Điểm danh khuôn mặt - Jetson Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { --bg:#0b1220; --card:#121a2b; --muted:#8aa0c7; --accent:#5ca8ff; --ok:#1ec28b; --err:#ff6b6b; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background: var(--bg); color: #eaf2ff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    header { padding: 10px 20px; border-bottom: 1px solid #1f2a44; display:flex; align-items:center; justify-content:space-between; flex-shrink: 0;}
+    header h1 { margin: 0; font-size: 16px; letter-spacing: .3px; }
+    .container { flex: 1; padding: 10px; display: grid; grid-template-columns: 320px 1fr; gap: 10px; overflow: hidden; }
+    .card { background: var(--card); border: 1px solid #1f2a44; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; overflow-y: auto; }
+    .card h2 { margin: 0 0 8px; font-size: 15px; color:#d9e6ff; border-bottom: 1px solid #1f2a44; padding-bottom: 4px; }
+    .controls { display:grid; grid-template-columns: 1fr 1fr; gap:5px; margin-bottom: 8px; }
+    button, input[type="file"], input[type="text"] {
+      background:#0f1626; color:#d9e6ff; border:1px solid #243253; border-radius:6px; padding:6px 8px; font-size:13px; width: 100%;
+    }
+    button:hover { border-color:var(--accent); cursor:pointer; background: #1a253d; }
+    button.primary { background: #13325c; border-color:#295ca7; }
+    button.good { background: #0d3a2e; border-color:#1ec28b; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .media-container { display: flex; flex-direction: column; gap: 8px; }
+    video, canvas { width:100%; border-radius:6px; border:1px solid #1f2a44; background:#000; aspect-ratio: 4/3; object-fit: contain; }
+    .result-layout { display: grid; grid-template-columns: 320px 1fr; gap: 15px; height: 100%; }
+    .result-visual { display: flex; flex-direction: column; gap: 5px; }
+    .result-table { flex: 1; overflow-y: auto; border: 1px solid #1f2a44; border-radius: 6px; }
+    .msg { margin-top:5px; padding:5px 8px; border-radius:6px; background:#0f1626; border:1px solid #243253; color:#9fb4d9; font-size: 12px; min-height: 28px; }
+    .msg.ok { border-color:#1ec28b; color:#b8f4da }
+    .msg.err{ border-color:#ff6b6b; color:#ffd3d3 }
+    table { width:100%; border-collapse: collapse; font-size:13px; }
+    th, td { border-bottom:1px solid #1f2a44; padding:8px; text-align:left; color:#cfe0ff; }
+    th { color:#9fb4d9; font-weight:600; background: #0f1626; position: sticky; top: 0; }
+    .pill { padding:2px 6px; border-radius:4px; font-size:11px; font-weight: bold; }
+    .pill.ok{ background:#123c31; color:#aaf0d6 }
+    .pill.err{ background:#4b2323; color:#ffbaba }
+    footer { padding: 5px; color:#506282; font-size:11px; text-align:center; border-top:1px solid #1f2a44; flex-shrink: 0;}
+    @media (max-width: 900px) { 
+      body { height: auto; overflow: auto; }
+      .container { grid-template-columns:1fr; } 
+      .result-layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Hệ thống Điểm danh Khuôn mặt</h1>
+  <a style="color:var(--muted); font-size:13px" href="/docs" target="_blank">📄 API Docs</a>
+</header>
+
+<div class="container">
+  <div class="card">
+    <h2>Nguồn Camera</h2>
+    <div class="media-container">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas" width="640" height="480" style="display:none"></canvas>
+    </div>
+
+    <div class="controls" style="margin-top:10px">
+      <button id="btnStartCam">Bật Camera</button>
+      <button id="btnShot" disabled>Chụp Ảnh</button>
+    </div>
+    
+    <div class="controls">
+      <input id="file" type="file" accept="image/*" style="grid-column: 1/-1" />
+      <button id="btnUpload" class="primary" style="grid-column: 1/-1">Gửi Nhận Diện</button>
+    </div>
+    <div id="uploadMsg" class="msg">Sẵn sàng.</div>
+
+    <div style="margin-top:auto; padding-top:15px; border-top:1px dashed #243253;">
+      <h2 style="border:0; font-size:14px; color:var(--accent)">Đăng ký người mới</h2>
+      <input id="newName" type="text" placeholder="Nhập tên..." style="margin-bottom:5px" />
+      <input id="fileNew" type="file" accept="image/*" style="margin-bottom:5px" />
+      <button id="btnRetrieve" class="good">Thêm vào DB</button>
+      <div id="retrieveMsg" class="msg"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Dữ liệu thực tế</h2>
+    <div class="result-layout">
+      <div class="result-visual">
+        <img id="preview" alt="Preview" style="display:none;"/>
+        <canvas id="draw" width="320" height="240"></canvas>
+        <div id="resultMsg" class="msg">Kết quả sẽ hiện ở đây</div>
+      </div>
+      <div class="result-table">
+        <table id="tbl">
+          <thead>
+            <tr><th>Thời gian</th><th>Họ tên</th><th>Độ tin cậy</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>Design for Jetson Nano Dashboard</footer>
+
+<script>
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas'); const cctx = canvas.getContext('2d');
+  const draw = document.getElementById('draw'); const dctx = draw.getContext('2d');
+  const file = document.getElementById('file'); 
+  const fileNew = document.getElementById('fileNew');
+  const preview = document.getElementById('preview');
+  
+  const btnStartCam = document.getElementById('btnStartCam');
+  const btnShot = document.getElementById('btnShot');
+  const btnUpload = document.getElementById('btnUpload');
+  const btnRetrieve = document.getElementById('btnRetrieve');
+  const uploadMsg = document.getElementById('uploadMsg');
+  const retrieveMsg = document.getElementById('retrieveMsg');
+  const resultMsg = document.getElementById('resultMsg');
+  const tblBody = document.querySelector('#tbl tbody');
+
+  function showMsg(el, text, type='') {
+    el.textContent = text;
+    el.className = 'msg ' + (type||'');
+  }
+
+  function drawImageTo(ctx, imgEl, maxW, maxH) {
+    const ratio = Math.min(maxW / imgEl.naturalWidth, maxH / imgEl.naturalHeight);
+    const w = imgEl.naturalWidth * ratio;
+    const h = imgEl.naturalHeight * ratio;
+    const offsetX = (maxW - w) / 2;
+    const offsetY = (maxH - h) / 2;
+    ctx.clearRect(0,0,ctx.canvas.width, ctx.canvas.height);
+    ctx.drawImage(imgEl, offsetX, offsetY, w, h);
+    return {ratio, offsetX, offsetY};
+  }
+
+  // --- LOGIC ƯU TIÊN FILE MỚI ---
+  file.onchange = () => {
+    file._camCapture = null; // Xóa ảnh chụp cam khi chọn file từ máy
+    if(file.files[0]) {
+      const url = URL.createObjectURL(file.files[0]);
+      preview.src = url;
+      preview.onload = () => drawImageTo(dctx, preview, draw.width, draw.height);
+      showMsg(uploadMsg, 'Đã chọn ảnh từ máy tính', 'ok');
+    }
+  };
+
+  async function loadAttendance() {
+    try {
+      const res = await fetch('/attendance/list');
+      if (!res.ok) return;
+      const store = await res.json();
+      tblBody.innerHTML = ''; 
+      store.slice().reverse().forEach((item) => {
+        if (!item || !item.name) return;
+        const rawTime = item.time || "00:00:00";
+        const shortTime = rawTime.split(' ')[0];
+        const confVal = parseFloat(item.conf) || 0;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${shortTime}</td>
+          <td><strong>${item.name}</strong></td>
+          <td><span class="pill ${confVal >= 0.75 ? 'ok' : 'err'}">${(confVal * (confVal <= 1 ? 100 : 1)).toFixed(0)}%</span></td>
+        `;
+        tblBody.appendChild(tr);
+      });
+    } catch (e) { console.error("Lỗi bảng:", e); }
+  }
+
+  loadAttendance();
+  setInterval(loadAttendance, 5000);
+
+  btnStartCam.onclick = async ()=>{
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({video:true});
+      video.srcObject = stream; btnShot.disabled=false;
+    } catch(e){ showMsg(uploadMsg,'Lỗi Cam: '+e,'err'); }
+  };
+
+  btnShot.onclick = async ()=>{
+    cctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const blob = await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.9));
+    file._camCapture = new File([blob],'webcam.jpg',{type:'image/jpeg'});
+    file.value = ""; // Xóa lựa chọn file từ máy khi chụp cam
+    preview.src = URL.createObjectURL(blob);
+    preview.onload = () => drawImageTo(dctx, preview, draw.width, draw.height);
+    showMsg(uploadMsg,'Đã chụp ảnh camera!','ok');
+  };
+
+  btnUpload.onclick = async ()=>{
+    // LẤY FILE TỪ MÁY TRƯỚC, NẾU KHÔNG CÓ MỚI LẤY FILE CHỤP CAM
+    const f = file.files[0] || file._camCapture;
+    if(!f) return showMsg(uploadMsg,'Hãy chụp hoặc chọn ảnh!','err');
+    
+    const fd = new FormData(); fd.append('image', f);
+    showMsg(resultMsg, 'Đang phân tích...', '');
+
+    try {
+      const res = await fetch('/upload',{method:'POST',body:fd});
+      const data = await res.json();
+      const imgObj = new Image();
+      imgObj.src = URL.createObjectURL(f);
+      imgObj.onload = async () => {
+        const {ratio, offsetX, offsetY} = drawImageTo(dctx, imgObj, draw.width, draw.height);
+        const dets = data.detections || [];
+        dctx.lineWidth=2; dctx.font='12px Arial';
+        dets.forEach(d=>{
+          const [x1,y1,x2,y2] = d.bbox;
+          const sx1 = x1*ratio + offsetX; const sy1 = y1*ratio + offsetY;
+          const sx2 = x2*ratio + offsetX; const sy2 = y2*ratio + offsetY;
+          const name = d.person_name || 'Unknown';
+          const isKnown = (name !== 'Unknown' && name !== 'Nguoi la');
+          dctx.strokeStyle = isKnown ? '#1ec28b' : '#ff4d4d';
+          dctx.strokeRect(sx1, sy1, sx2-sx1, sy2-sy1);
+          dctx.fillStyle = isKnown ? '#1ec28b' : '#ff4d4d';
+          dctx.fillRect(sx1, sy1-18, dctx.measureText(name).width+10, 18);
+          dctx.fillStyle = '#fff'; dctx.fillText(name, sx1+5, sy1-5);
+        });
+
+        if(dets.length){
+           const top = dets[0];
+           if(top.person_name && top.person_name !== 'Unknown') {
+               await saveAttendance({
+                   name: top.person_name,
+                   conf: top.confidence || 0,
+                   time: new Date().toLocaleTimeString('vi-VN') + ' ' + new Date().toLocaleDateString('vi-VN')
+               });
+               loadAttendance();
+           }
+           showMsg(resultMsg, `Thành công!`, 'ok'); 
+        } else showMsg(resultMsg,'Không thấy mặt.','err');
+      };
+    } catch(e){ showMsg(uploadMsg,'Lỗi: '+e.message,'err'); }
+  };
+
+  async function saveAttendance(log){
+    try{ await fetch('/attendance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(log)}); } catch(e){}
+  }
+
+  btnRetrieve.onclick = async()=>{
+    const name = document.getElementById('newName').value.trim();
+    const f = fileNew.files[0] || file._camCapture; 
+    if(!name || !f) return showMsg(retrieveMsg,'Thiếu tên hoặc ảnh!','err');
+    const fd = new FormData(); fd.append('customerName', name); fd.append('image', f);
+    try{
+      const res = await fetch('/retrieve',{method:'POST',body:fd});
+      if(res.ok) showMsg(retrieveMsg,'Đăng ký OK!','ok');
+    } catch(e){ showMsg(retrieveMsg,'Lỗi mạng','err');}
+  };
+</script>
+</body>
+</html>
